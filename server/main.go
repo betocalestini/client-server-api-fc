@@ -32,59 +32,11 @@ type UsdBrl struct {
 	CreateDate string `json:"create_date"`
 }
 
-type Bid struct {
-	Value string
+type Dolar struct {
+	Bid string
 }
 
 const url = "https://economia.awesomeapi.com.br/json/last/USD-BRL"
-
-func CotacaoGetHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, time.Millisecond)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		log.Fatal("Erro ao preparar a requisição: ", err)
-	}
-
-	req.Header.Add("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("{Mensagem: Não foi possível obter os dados dentro do tempo limite}"))
-		log.Fatal("Erro ao executar a requisição: ", err)
-	}
-	defer resp.Body.Close()
-
-	res, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatal("Erro ao ler o corpo da resposta: ", err)
-	}
-
-	var cotacao Cotacao
-
-	err = json.Unmarshal(res, &cotacao)
-	if err != nil {
-		log.Fatal("Erro ao converter o Json: ", err)
-	}
-
-	err = InsertData(cotacao)
-	if err != nil {
-		fmt.Println("Erro ao inserir dados no Banco: ", err)
-	}
-
-	var bidAtual Bid
-	bidAtual.Value = cotacao.Bid
-
-	retornoClient, err := json.Marshal(bidAtual)
-	if err != nil {
-		log.Fatal("Erro ao converter a struct: ", err)
-	}
-
-	w.Write([]byte(retornoClient))
-}
 
 func OpenConnectionWithDB() *sql.DB {
 	db, err := sql.Open("sqlite3", "./database.db")
@@ -103,25 +55,92 @@ func CreateTable(db *sql.DB) {
 }
 
 func InsertData(cotacao Cotacao) error {
+	//criando o contexto
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, time.Millisecond*10)
 	defer cancel()
 
+	//abrindo a conexão com o banco de dados
 	db := OpenConnectionWithDB()
 	defer db.Close()
 
+	//preparando o statemant
 	stmt, err := db.Prepare("insert into cotacoes (code, codein, name, high, low, var_bid, pct_change, bid, ask, timestamp, create_date) values (?,?,?,?,?,?,?,?,?,?,?)")
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
+	//executando a requisição passando o contexto, e atribuindo à struct criada
 	_, err = stmt.ExecContext(ctx, &cotacao.Code, &cotacao.Codein, &cotacao.Name, &cotacao.High, &cotacao.Low, &cotacao.VarBid, &cotacao.PctChange, &cotacao.Bid, &cotacao.Ask, &cotacao.Timestamp, &cotacao.CreateDate)
 	if err != nil {
 		return err
 	}
-
 	return nil
+}
+
+func CotacaoGetHandler(w http.ResponseWriter, r *http.Request) {
+	//criando o contexto
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Millisecond*200)
+	defer cancel()
+
+	//criando a requisição
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"Mensagem": "Ocorreu um erro interno"}`))
+		fmt.Println("Erro ao preparar a requisição: ", err)
+		return
+	}
+	req.Header.Add("Accept", "application/json")
+
+	//executando a requisição
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		w.WriteHeader(http.StatusRequestTimeout)
+		w.Write([]byte(`{"Mensagem": "Não foi possível obter os dados dentro do tempo limite"}`))
+		fmt.Println("Erro ao executar a requisição: ", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	//lendo o corpo da resposta
+	res, err := io.ReadAll(resp.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"Mensagem": "Ocorreu um erro ao processar a resposta"}`))
+		fmt.Println("Erro ao ler o corpo da resposta: ", err)
+		return
+	}
+
+	//convertendo o json da resposta
+	var cotacao Cotacao
+	err = json.Unmarshal(res, &cotacao)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"Mensagem": "Ocorreu um erro ao processar a resposta"}`))
+		fmt.Println("Erro ao converter a resposta: ", err)
+		return
+	}
+
+	//inserindo os dados no banco de dados
+	err = InsertData(cotacao)
+	if err != nil {
+		fmt.Println("Erro ao inserir os dados no Banco: ", err)
+	}
+
+	//enviando o Bid ao cliente
+	var dolar Dolar
+	dolar.Bid = cotacao.Bid
+	retornoClient, err := json.Marshal(dolar)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"Mensagem": "Ocorreu um erro ao processar a resposta"}`))
+		fmt.Println("Erro ao converter a struct: ", err)
+		return
+	}
+	w.Write([]byte(retornoClient))
 }
 
 func main() {
