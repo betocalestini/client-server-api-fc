@@ -56,11 +56,13 @@ func GravarArquivoDeCotacao(res []byte) {
 	var serverError MensagemErro
 	var resultado string
 
+	//convertando a reposta
 	err := json.Unmarshal(res, &dolar)
 	if err != nil {
 		log.Fatal("Erro ao converter o JSON da resposta: ", err)
 	}
 
+	//tratando erros internos do servidor
 	if dolar.Bid == "" {
 		err := json.Unmarshal(res, &serverError)
 		if err != nil {
@@ -68,6 +70,8 @@ func GravarArquivoDeCotacao(res []byte) {
 		}
 		resultado = fmt.Sprintf("Erro: %v \n", serverError.Mensagem)
 		fmt.Println("Erro ao receber a resposta do servidor: ", resultado)
+		fmt.Println("Arquivo gerado com erro no resultado")
+		return
 	} else {
 		resultado = fmt.Sprintf("Dólar: %v \n", dolar.Bid)
 	}
@@ -83,6 +87,7 @@ func GravarArquivoDeCotacao(res []byte) {
 	if err != nil {
 		log.Fatal("Erro ao gravar no arquivo: ", err)
 	}
+	fmt.Println("Arquivo gerado com sucesso")
 }
 
 func main() {

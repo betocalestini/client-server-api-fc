@@ -82,7 +82,7 @@ func InsertData(cotacao Cotacao) error {
 func CotacaoGetHandler(w http.ResponseWriter, r *http.Request) {
 	//criando o contexto
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, time.Millisecond*200)
+	ctx, cancel := context.WithTimeout(ctx, time.Millisecond*2)
 	defer cancel()
 
 	//criando a requisição
